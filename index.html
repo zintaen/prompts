@@ -1,0 +1,1241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AUDIT.md — a self-auditing repo-audit prompt</title>
+<meta name="description" content="AUDIT.md is a large, opinionated LLM-run codebase auditor, hardened by a regression harness that blocks drift. Introduce it, read its structure, run it on any project, and fine-tune it safely." />
+
+<link rel="icon" type="image/svg+xml" href="assets/cyberskill-logo.svg">
+<link rel="alternate icon" type="image/svg+xml" href="assets/cyberskill-logo.svg">
+<link rel="apple-touch-icon" href="assets/cyberskill-logo.svg">
+<meta name="theme-color" content="#45210E">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Red+Hat+Text:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['"Red Hat Text"', 'system-ui', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+        },
+        colors: {
+          brown: {
+            50:  '#FAF2E6',
+            100: '#F0DCC4',
+            200: '#E6C7AA',
+            300: '#D4A884',
+            400: '#BF8A61',
+            500: '#A56D44',
+            600: '#8A5530',
+            700: '#71401F',
+            800: '#5A2E15',
+            900: '#45210E',
+            950: '#2A140A',
+          },
+          gold: {
+            50:  '#FEF9EA',
+            100: '#FDF1D3',
+            200: '#FBE3A8',
+            300: '#F9D478',
+            400: '#F6C644',
+            500: '#F4BA17',
+            600: '#E2AC13',
+            700: '#D19D10',
+            800: '#B0810D',
+            900: '#8A6508',
+          },
+          cream: {
+            50:  '#FBF7EF',
+            100: '#F7F1E4',
+            200: '#EFE7D6',
+            300: '#E3D8C5',
+            400: '#D0C1AD',
+            500: '#B8A693',
+            600: '#9A8573',
+            700: '#7A6454',
+            800: '#5B473A',
+            900: '#3F2F22',
+            950: '#1D120A',
+          },
+          olive:      { 600: '#657B3A' },
+          ochre:      { 600: '#B88A1C' },
+          terracotta: { 600: '#B85138' },
+          info:       { 600: '#2F6B8C' },
+        },
+        letterSpacing: {
+          eyebrow: '0.14em',
+          slogan:  '0.16em',
+          tight2:  '-0.03em',
+        },
+        boxShadow: {
+          'warm-xs':   '0 1px 2px 0 rgba(69, 33, 14, 0.06)',
+          'warm-sm':   '0 2px 4px -1px rgba(69, 33, 14, 0.08), 0 1px 2px -1px rgba(69, 33, 14, 0.05)',
+          'warm-md':   '0 6px 14px -4px rgba(69, 33, 14, 0.10), 0 2px 4px -2px rgba(69, 33, 14, 0.06)',
+          'warm-lg':   '0 14px 30px -10px rgba(69, 33, 14, 0.14), 0 4px 8px -4px rgba(69, 33, 14, 0.08)',
+          'warm-xl':   '0 28px 48px -16px rgba(69, 33, 14, 0.20), 0 8px 16px -8px rgba(69, 33, 14, 0.10)',
+          'glow-gold': '0 0 0 1px rgba(244, 186, 23, 0.35), 0 14px 30px -10px rgba(244, 186, 23, 0.35)',
+        },
+      },
+    },
+  };
+</script>
+
+<style>
+  html { scroll-behavior: smooth; }
+  body { font-family: "Red Hat Text", system-ui, sans-serif; font-weight: 500; }
+  strong, b, h1, h2, h3, h4, h5, h6 { font-weight: 700; }
+
+  /* Textures from the brand — brown-tinted */
+  .tex-glow {
+    background:
+      radial-gradient(circle at 75% 30%, rgba(244, 186, 23, 0.18) 0%, transparent 55%),
+      radial-gradient(circle at 20% 80%, rgba(244, 186, 23, 0.06) 0%, transparent 50%);
+  }
+  .tex-grid {
+    background-image:
+      linear-gradient(rgba(69, 33, 14, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(69, 33, 14, 0.06) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  .tex-dots {
+    background-image: radial-gradient(rgba(69, 33, 14, 0.18) 1px, transparent 1.5px);
+    background-size: 16px 16px;
+  }
+  .tex-stripes {
+    background-image: repeating-linear-gradient(135deg,
+      rgba(69, 33, 14, 0.00) 0px,
+      rgba(69, 33, 14, 0.00) 10px,
+      rgba(244, 186, 23, 0.14) 10px,
+      rgba(244, 186, 23, 0.14) 12px);
+  }
+
+  /* Component transitions — dur-base 200ms, ease-out */
+  .card        { transition: transform 200ms cubic-bezier(.22,1,.36,1), box-shadow 200ms cubic-bezier(.22,1,.36,1), border-color 200ms cubic-bezier(.22,1,.36,1); }
+  .card:hover  { transform: translateY(-2px); box-shadow: 0 18px 36px -14px rgba(69, 33, 14, 0.18), 0 4px 8px -4px rgba(69, 33, 14, 0.08); }
+
+  /* Brand hero headline — 72px, 1.02, -0.03em */
+  .hero-title { font-size: clamp(44px, 7.2vw, 84px); line-height: 1.02; letter-spacing: -0.03em; font-weight: 700; }
+
+  /* Eyebrow helper */
+  .eyebrow { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; }
+
+  /* Gold emphasis — replaces italic */
+  .gold { color: #E2AC13; } /* gold-600 on light */
+  .gold-strong { color: #F4BA17; } /* gold-500 on dark */
+
+  /* Code sample */
+  pre.code {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre;
+    overflow-x: auto;
+    color: #FAF2E6;
+    background: #2A140A;
+    border: 1px solid #45210E;
+    border-radius: 12px;
+    padding: 20px 24px;
+  }
+  pre.code .c-comment { color: #D4A884; }
+  pre.code .c-str     { color: #F9D478; }
+  pre.code .c-key     { color: #F6C644; }
+  pre.code .c-cmd     { color: #FDF1D3; font-weight: 700; }
+
+  /* Focus ring — gold */
+  a:focus-visible, button:focus-visible { outline: 2px solid #F4BA17; outline-offset: 2px; border-radius: 6px; }
+</style>
+</head>
+
+<body class="bg-cream-50 text-brown-950 antialiased">
+
+<!-- NAV -->
+<nav class="sticky top-0 z-50 bg-cream-50/90 backdrop-blur border-b border-brown-100">
+  <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+    <a href="#top" class="flex items-center gap-3">
+      <span class="inline-flex w-9 h-9 rounded-md bg-brown-900 items-center justify-center overflow-hidden">
+        <img src="assets/cyberskill-logo.svg" alt="CyberSkill" width="28" height="34" class="select-none"/>
+      </span>
+      <span class="font-bold tracking-tight text-brown-900 text-[17px] leading-none">
+        AUDIT<span class="text-gold-600">.md</span>
+        <span class="block text-[10px] font-bold tracking-slogan uppercase text-brown-500 mt-1">by CyberSkill</span>
+      </span>
+    </a>
+    <div class="hidden md:flex items-center gap-7 text-[14px] text-brown-700">
+      <a href="#what" class="hover:text-brown-900 transition">Introduce</a>
+      <a href="#structure" class="hover:text-brown-900 transition">Structure</a>
+      <a href="#use" class="hover:text-brown-900 transition">Use it</a>
+      <a href="#fine-tune" class="hover:text-brown-900 transition">Fine-tune</a>
+      <a href="#rubric" class="hover:text-brown-900 transition">PE rubric</a>
+    </div>
+    <div class="flex items-center gap-2">
+      <a href="https://github.com/zintaen/code-audit" target="_blank" rel="noopener"
+         class="hidden sm:inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-brown-200 hover:border-brown-400 hover:bg-brown-50 text-[13px] text-brown-800 transition">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.38 7.86 10.9.58.1.79-.25.79-.56v-2.04c-3.2.7-3.87-1.37-3.87-1.37-.52-1.32-1.28-1.67-1.28-1.67-1.04-.72.08-.7.08-.7 1.15.08 1.75 1.18 1.75 1.18 1.03 1.76 2.7 1.25 3.36.95.1-.74.4-1.25.72-1.54-2.55-.29-5.23-1.27-5.23-5.66 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.45.11-3.03 0 0 .97-.31 3.18 1.17a11 11 0 015.8 0c2.2-1.48 3.17-1.17 3.17-1.17.63 1.58.24 2.74.12 3.03.73.8 1.18 1.82 1.18 3.07 0 4.4-2.69 5.36-5.26 5.65.41.35.78 1.04.78 2.1v3.11c0 .31.2.67.8.56A11.5 11.5 0 0023.5 12c0-6.27-5.23-11.5-11.5-11.5z"/></svg>
+        GitHub
+      </a>
+      <a href="https://buymeacoffee.com/zintaen" target="_blank" rel="noopener"
+         class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-gold-500 hover:bg-gold-400 text-brown-950 font-bold text-[13px] transition shadow-warm-sm">
+        Support the work
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section id="top" class="relative overflow-hidden bg-brown-900 text-cream-50">
+  <div class="absolute inset-0 tex-glow opacity-80"></div>
+  <div class="absolute -top-20 -right-10 w-[520px] h-[520px] rounded-full bg-gold-500/10 blur-3xl"></div>
+  <div class="relative max-w-7xl mx-auto px-6 pt-24 pb-28 md:pt-32 md:pb-36">
+    <div class="flex items-center gap-3 mb-6 eyebrow text-gold-400">
+      <span>The brand system</span>
+      <span class="text-brown-300">·</span>
+      <span class="text-brown-200">PE 79 / 80 · 40 rules · 8 fixtures · 81 cells</span>
+    </div>
+    <h1 class="hero-title text-cream-50">
+      Audit a repo.<br>
+      Then <span class="text-gold-400">audit the audit.</span>
+    </h1>
+    <p class="mt-8 text-[18px] md:text-[20px] leading-[1.55] text-brown-100 max-w-2xl">
+      <strong class="text-cream-50">AUDIT.md</strong> is a large, opinionated LLM-run codebase auditor — hardened by a regression harness that blocks a merge whenever a previously-passing rule flips to fail. Every edit to the prompt is grounded in a real drift incident, runs through a proposed-edit queue, and is gated by the same discipline the prompt itself enforces on the code it audits.
+    </p>
+
+    <div class="mt-10 flex flex-wrap items-center gap-3">
+      <a href="#what" class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-gold-500 hover:bg-gold-400 text-brown-950 font-bold text-[15px] transition shadow-warm-md">
+        See how it works
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>
+      </a>
+      <a href="#use" class="inline-flex items-center gap-2 px-5 py-3 rounded-lg border border-brown-400 hover:border-gold-400 hover:bg-brown-800 text-cream-50 text-[15px] transition">
+        Run it on any project
+      </a>
+      <a href="https://github.com/zintaen/code-audit" target="_blank" rel="noopener"
+         class="inline-flex items-center gap-2 px-5 py-3 rounded-lg border border-brown-400 hover:border-gold-400 hover:bg-brown-800 text-cream-50 text-[15px] transition">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.38 7.86 10.9.58.1.79-.25.79-.56v-2.04c-3.2.7-3.87-1.37-3.87-1.37-.52-1.32-1.28-1.67-1.28-1.67-1.04-.72.08-.7.08-.7 1.15.08 1.75 1.18 1.75 1.18 1.03 1.76 2.7 1.25 3.36.95.1-.74.4-1.25.72-1.54-2.55-.29-5.23-1.27-5.23-5.66 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.45.11-3.03 0 0 .97-.31 3.18 1.17a11 11 0 015.8 0c2.2-1.48 3.17-1.17 3.17-1.17.63 1.58.24 2.74.12 3.03.73.8 1.18 1.82 1.18 3.07 0 4.4-2.69 5.36-5.26 5.65.41.35.78 1.04.78 2.1v3.11c0 .31.2.67.8.56A11.5 11.5 0 0023.5 12c0-6.27-5.23-11.5-11.5-11.5z"/></svg>
+        View on GitHub
+      </a>
+    </div>
+
+    <!-- Stats -->
+    <div class="mt-16 grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div class="rounded-xl bg-brown-800/70 ring-1 ring-brown-700 p-5">
+        <div class="text-[32px] font-bold text-cream-50 leading-none">1,898</div>
+        <div class="eyebrow text-brown-300 mt-2">Lines</div>
+      </div>
+      <div class="rounded-xl bg-brown-800/70 ring-1 ring-brown-700 p-5">
+        <div class="text-[32px] font-bold text-cream-50 leading-none">40</div>
+        <div class="eyebrow text-brown-300 mt-2">Active rules</div>
+      </div>
+      <div class="rounded-xl bg-brown-800/70 ring-1 ring-brown-700 p-5">
+        <div class="text-[32px] font-bold text-cream-50 leading-none">8</div>
+        <div class="eyebrow text-brown-300 mt-2">Fixtures</div>
+      </div>
+      <div class="rounded-xl bg-brown-800/70 ring-1 ring-brown-700 p-5">
+        <div class="text-[32px] font-bold text-cream-50 leading-none">81</div>
+        <div class="eyebrow text-brown-300 mt-2">Baseline cells</div>
+      </div>
+      <div class="rounded-xl bg-brown-800/70 ring-1 ring-gold-500/50 p-5">
+        <div class="flex items-baseline gap-1">
+          <span class="text-[32px] font-bold text-gold-400 leading-none">79</span>
+          <span class="text-brown-300 text-lg">/ 80</span>
+        </div>
+        <div class="eyebrow text-brown-300 mt-2">PE rubric</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- WHAT IS AUDIT.MD (INTRODUCE) -->
+<section id="what" class="py-24 border-t border-brown-100">
+  <div class="max-w-7xl mx-auto px-6">
+    <div class="grid md:grid-cols-2 gap-14 items-start">
+      <div>
+        <div class="eyebrow text-gold-600 mb-4">01 · Introduce</div>
+        <h2 class="text-[40px] md:text-[52px] leading-[1.05] tracking-tight font-bold text-brown-900 mb-6">What AUDIT.md is.</h2>
+        <div class="space-y-5 text-[16px] leading-[1.6] text-brown-800">
+          <p>AUDIT.md is a <strong>single markdown file</strong> you hand to an LLM (Claude, GPT, Gemini, Copilot, Cursor, Antigravity, Windsurf, Zed — any model, any IDE). The model reads the spec, scans a repo, and writes a structured audit report: findings, severity, evidence, HITL banners, and a resumable state index.</p>
+          <p>It is not a script. It is a <span class="gold font-bold">contract</span> — rules the model must honor, output shape it must conform to, and behaviors it must refuse. Every behavior has a canonical § home, a stable rule_id, and a frozen birth fingerprint so the harness can detect drift.</p>
+          <p>The interesting part is not the prompt. It is <strong>how the prompt is maintained</strong> — a regression harness that blocks a merge whenever a previously-passing rule flips to fail.</p>
+        </div>
+      </div>
+      <div class="relative">
+        <div class="absolute -inset-4 tex-glow rounded-3xl opacity-60"></div>
+        <div class="relative rounded-2xl bg-brown-50 ring-1 ring-brown-200 shadow-warm-md p-8">
+          <div class="eyebrow text-brown-600 mb-5">Principles · in one breath</div>
+          <dl class="space-y-5">
+            <div>
+              <dt class="font-bold text-brown-900">01 · Mirror reality.</dt>
+              <dd class="text-[14px] text-brown-700 mt-1">Findings reference real files, real lines, real evidence. No fabrication, no evidence-free claims.</dd>
+            </div>
+            <div>
+              <dt class="font-bold text-brown-900">02 · Closed contracts.</dt>
+              <dd class="text-[14px] text-brown-700 mt-1">Item schema, severity ladder, output layout — closed top-level keys. A drifted shape fails the harness.</dd>
+            </div>
+            <div>
+              <dt class="font-bold text-brown-900">03 · Resumable.</dt>
+              <dd class="text-[14px] text-brown-700 mt-1">A STATE-INDEX plus atomic persistence means a halted audit picks up exactly where it stopped.</dd>
+            </div>
+            <div>
+              <dt class="font-bold text-brown-900">04 · <span class="gold">Protected</span> from weakening.</dt>
+              <dd class="text-[14px] text-brown-700 mt-1">Five anti-gaming rules — the analyzer itself is forbidden from weakening them.</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+    </div>
+
+    <!-- Drift problem block -->
+    <div class="mt-20 rounded-2xl bg-brown-900 text-cream-50 p-8 md:p-12 shadow-warm-lg relative overflow-hidden">
+      <div class="absolute inset-0 tex-glow opacity-40"></div>
+      <div class="relative grid md:grid-cols-2 gap-10">
+        <div>
+          <div class="eyebrow text-gold-400 mb-4">The drift problem</div>
+          <h3 class="text-[30px] md:text-[36px] leading-[1.1] tracking-tight font-bold mb-5">Large prompts rot the moment you edit them.</h3>
+          <div class="space-y-3 text-[15px] leading-[1.6] text-brown-100">
+            <p>A 1,900-line prompt has dozens of behaviors, constraints, and contracts. Change one clause and you might silently weaken three others — especially under a different model or IDE. The only thing worse than a prompt that doesn't work is a prompt that <span class="gold-strong font-bold">used to work</span>.</p>
+            <p>The usual loop ("ask the model, eyeball the diff, ship") has no memory and no regression net. This project is the opposite.</p>
+          </div>
+        </div>
+        <div class="space-y-3">
+          <div class="flex items-start gap-3 rounded-xl bg-brown-800/70 ring-1 ring-terracotta-600/40 p-4">
+            <svg class="mt-0.5 flex-shrink-0 text-terracotta-600" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            <div>
+              <div class="text-cream-50 font-bold">Silent regressions</div>
+              <div class="text-[13px] text-brown-200 mt-0.5">Edit passes on Claude, breaks on GPT-4 or Gemini — and nobody notices for a week.</div>
+            </div>
+          </div>
+          <div class="flex items-start gap-3 rounded-xl bg-brown-800/70 ring-1 ring-terracotta-600/40 p-4">
+            <svg class="mt-0.5 flex-shrink-0 text-terracotta-600" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            <div>
+              <div class="text-cream-50 font-bold">Prompt bloat</div>
+              <div class="text-[13px] text-brown-200 mt-0.5">Every incident spawns a new paragraph; nothing gets deleted. Token cost creeps up.</div>
+            </div>
+          </div>
+          <div class="flex items-start gap-3 rounded-xl bg-brown-800/70 ring-1 ring-terracotta-600/40 p-4">
+            <svg class="mt-0.5 flex-shrink-0 text-terracotta-600" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            <div>
+              <div class="text-cream-50 font-bold">Anti-gaming collapse</div>
+              <div class="text-[13px] text-brown-200 mt-0.5">A "helpful" edit softens the rule that was holding the model honest.</div>
+            </div>
+          </div>
+          <div class="flex items-start gap-3 rounded-xl bg-brown-800/70 ring-1 ring-gold-500/50 p-4">
+            <svg class="mt-0.5 flex-shrink-0 text-gold-400" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <div>
+              <div class="text-gold-400 font-bold">The answer</div>
+              <div class="text-[13px] text-brown-100 mt-0.5">Three tightly-coupled files, a per-rule pass ledger, a frozen birth fingerprint per rule, a 16-practice PE rubric, and an analyzer that can only propose — never apply.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STRUCTURE — TRIPOD + ANATOMY + RULE FAMILIES + FIXTURES -->
+<section id="structure" class="py-24 bg-cream-100 border-y border-brown-100">
+  <div class="max-w-7xl mx-auto px-6">
+    <div class="max-w-3xl">
+      <div class="eyebrow text-gold-600 mb-4">02 · Structure</div>
+      <h2 class="text-[40px] md:text-[52px] leading-[1.05] tracking-tight font-bold text-brown-900 mb-5">The shape of the spec.</h2>
+      <p class="text-[17px] leading-[1.6] text-brown-800">AUDIT.md is organized into functional zones. Every rule has a <strong>canonical §</strong> that never moves (enforced as PE Practice 1) and a frozen birth fingerprint at rule creation. The harness depends on a three-file tripod that stays consistent or breaks the merge.</p>
+    </div>
+
+    <!-- TRIPOD -->
+    <div class="mt-12 grid md:grid-cols-3 gap-5">
+      <div class="relative rounded-2xl bg-cream-50 ring-1 ring-brown-200 shadow-warm-sm p-6 card">
+        <div class="absolute top-4 right-4 eyebrow text-brown-500">1 / 3</div>
+        <div class="w-10 h-10 rounded-lg bg-brown-900 flex items-center justify-center mb-4">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#F4BA17" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+        </div>
+        <h3 class="text-[20px] font-bold text-brown-900 font-mono mb-2">AUDIT.md</h3>
+        <p class="text-[14px] leading-[1.55] text-brown-700">The spec — source of truth. Every editable behavior lives here. ~1,900 lines of canonical rules, sections, output contracts, anti-drift requirements.</p>
+        <div class="pt-4 mt-4 border-t border-brown-100 text-[11px] font-mono text-brown-500 break-all">sha256:a3c86e12…</div>
+      </div>
+
+      <div class="relative rounded-2xl bg-cream-50 ring-1 ring-brown-200 shadow-warm-sm p-6 card">
+        <div class="absolute top-4 right-4 eyebrow text-brown-500">2 / 3</div>
+        <div class="w-10 h-10 rounded-lg bg-gold-500 flex items-center justify-center mb-4">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#45210E" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        </div>
+        <h3 class="text-[20px] font-bold text-brown-900 font-mono mb-2">rule-registry.json</h3>
+        <p class="text-[14px] leading-[1.55] text-brown-700">Every enforceable rule has a stable <code class="text-gold-700 font-mono">rule_id</code>, a canonical § section in AUDIT.md, a <strong>frozen birth fingerprint</strong>, and a list of fixtures that exercise it.</p>
+        <div class="pt-4 mt-4 border-t border-brown-100 text-[11px] font-mono text-brown-500">40 active rules · 6 prefix families</div>
+      </div>
+
+      <div class="relative rounded-2xl bg-cream-50 ring-1 ring-brown-200 shadow-warm-sm p-6 card">
+        <div class="absolute top-4 right-4 eyebrow text-brown-500">3 / 3</div>
+        <div class="w-10 h-10 rounded-lg bg-brown-700 flex items-center justify-center mb-4">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#F4BA17" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
+        </div>
+        <h3 class="text-[20px] font-bold text-brown-900 font-mono mb-2">baseline.json</h3>
+        <p class="text-[14px] leading-[1.55] text-brown-700">Per-cell (<code class="text-gold-700 font-mono">fixture × model × IDE</code>) pass/fail ledger at the current fingerprint. Plus the 16-practice PE rubric score and a prior-scores history chain.</p>
+        <div class="pt-4 mt-4 border-t border-brown-100 text-[11px] font-mono text-brown-500">81 cells · PE 79/80 · rule-survival invariant</div>
+      </div>
+    </div>
+
+    <!-- Coupling diagram -->
+    <div class="mt-8 rounded-2xl bg-cream-50 ring-1 ring-brown-200 shadow-warm-sm p-8">
+      <div class="eyebrow text-brown-600 mb-5">How they couple</div>
+      <svg viewBox="0 0 900 300" class="w-full h-auto" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Coupling diagram showing AUDIT.md registering rules into rule-registry.json and exercising them via baseline.json, both read by coverage-sweep.py as the integrity gate">
+        <defs>
+          <marker id="arrow-brown" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#71401F"/>
+          </marker>
+          <marker id="arrow-gold" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#E2AC13"/>
+          </marker>
+        </defs>
+
+        <!-- Boxes -->
+        <g>
+          <rect x="30" y="110" width="200" height="80" rx="12" fill="#45210E" stroke="#71401F" stroke-width="1.5"/>
+          <text x="130" y="145" text-anchor="middle" fill="#FBF7EF" font-family="JetBrains Mono, monospace" font-size="15" font-weight="700">AUDIT.md</text>
+          <text x="130" y="168" text-anchor="middle" fill="#D4A884" font-family="JetBrains Mono, monospace" font-size="11">the spec</text>
+        </g>
+        <g>
+          <rect x="340" y="30" width="220" height="80" rx="12" fill="#FEF9EA" stroke="#E2AC13" stroke-width="1.5"/>
+          <text x="450" y="65" text-anchor="middle" fill="#45210E" font-family="JetBrains Mono, monospace" font-size="15" font-weight="700">rule-registry.json</text>
+          <text x="450" y="88" text-anchor="middle" fill="#8A6508" font-family="JetBrains Mono, monospace" font-size="11">rule_id ↔ § ↔ birth fp</text>
+        </g>
+        <g>
+          <rect x="340" y="190" width="220" height="80" rx="12" fill="#FAF2E6" stroke="#71401F" stroke-width="1.5"/>
+          <text x="450" y="225" text-anchor="middle" fill="#45210E" font-family="JetBrains Mono, monospace" font-size="15" font-weight="700">baseline.json</text>
+          <text x="450" y="248" text-anchor="middle" fill="#71401F" font-family="JetBrains Mono, monospace" font-size="11">fixture × model × IDE × rule</text>
+        </g>
+        <g>
+          <rect x="670" y="110" width="210" height="80" rx="12" fill="#F4BA17" stroke="#E2AC13" stroke-width="1.5"/>
+          <text x="775" y="138" text-anchor="middle" fill="#45210E" font-family="JetBrains Mono, monospace" font-size="13" font-weight="700">coverage-sweep.py</text>
+          <text x="775" y="158" text-anchor="middle" fill="#5A2E15" font-family="JetBrains Mono, monospace" font-size="11">integrity gate</text>
+          <text x="775" y="176" text-anchor="middle" fill="#5A2E15" font-family="JetBrains Mono, monospace" font-size="11">PROBLEMS: none</text>
+        </g>
+
+        <!-- Arrows -->
+        <!-- AUDIT.md → rule-registry.json (curves up) -->
+        <path d="M 230 130 Q 285 85 340 70" stroke="#71401F" stroke-width="1.75" fill="none" marker-end="url(#arrow-brown)"/>
+        <!-- AUDIT.md → baseline.json (curves down) -->
+        <path d="M 230 170 Q 285 215 340 230" stroke="#71401F" stroke-width="1.75" fill="none" marker-end="url(#arrow-brown)"/>
+        <!-- rule-registry.json → baseline.json (vertical) -->
+        <path d="M 450 110 L 450 190" stroke="#E2AC13" stroke-width="1.75" fill="none" marker-end="url(#arrow-gold)"/>
+        <!-- rule-registry.json → coverage-sweep.py (dashed) -->
+        <path d="M 560 75 Q 615 90 670 135" stroke="#71401F" stroke-width="1.5" fill="none" marker-end="url(#arrow-brown)" stroke-dasharray="4,3"/>
+        <!-- baseline.json → coverage-sweep.py (dashed) -->
+        <path d="M 560 225 Q 615 210 670 165" stroke="#71401F" stroke-width="1.5" fill="none" marker-end="url(#arrow-brown)" stroke-dasharray="4,3"/>
+
+        <!-- Edge labels (positioned in clear space, never overlapping boxes or each other) -->
+        <text x="285" y="100" text-anchor="middle" fill="#71401F" font-family="JetBrains Mono, monospace" font-size="11">registers</text>
+        <text x="285" y="207" text-anchor="middle" fill="#71401F" font-family="JetBrains Mono, monospace" font-size="11">exercises</text>
+        <text x="462" y="154" text-anchor="start" fill="#8A6508" font-family="JetBrains Mono, monospace" font-size="11">feeds</text>
+        <text x="615" y="82" text-anchor="middle" fill="#8A5530" font-family="JetBrains Mono, monospace" font-size="11">reads</text>
+        <text x="615" y="226" text-anchor="middle" fill="#8A5530" font-family="JetBrains Mono, monospace" font-size="11">reads</text>
+      </svg>
+    </div>
+
+    <!-- ANATOMY -->
+    <div class="mt-20">
+      <div class="eyebrow text-gold-600 mb-3">AUDIT.md anatomy</div>
+      <h3 class="text-[28px] md:text-[36px] leading-[1.1] tracking-tight font-bold text-brown-900 mb-3">What lives in the spec.</h3>
+      <p class="text-[15px] text-brown-700 max-w-2xl">Each rule has a canonical home that never moves, and a frozen birth § at rule creation.</p>
+
+      <div class="mt-8 grid md:grid-cols-2 gap-4">
+        <!-- tile -->
+        <div class="rounded-xl bg-cream-50 ring-1 ring-brown-200 p-5 card">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="font-mono text-[11px] font-bold text-brown-950 bg-gold-300 px-2 py-0.5 rounded">§ROLE</span>
+            <h4 class="text-brown-900 font-bold">Role + objective</h4>
+          </div>
+          <p class="text-[13px] text-brown-700 leading-[1.55]">Single paragraph defining the auditor's stance, default mode, and refusal contract.</p>
+        </div>
+        <div class="rounded-xl bg-cream-50 ring-1 ring-brown-200 p-5 card">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="font-mono text-[11px] font-bold text-brown-950 bg-gold-300 px-2 py-0.5 rounded">§3 Anti-drift</span>
+            <h4 class="text-brown-900 font-bold">26 R-rules</h4>
+          </div>
+          <p class="text-[13px] text-brown-700 leading-[1.55]">Findings must mirror reality. No fabrication, no evidence-free claims, no category-mass-nulling, no helper scripts.</p>
+        </div>
+        <div class="rounded-xl bg-cream-50 ring-1 ring-brown-200 p-5 card">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="font-mono text-[11px] font-bold text-brown-950 bg-gold-300 px-2 py-0.5 rounded">§ITEM SCHEMA</span>
+            <h4 class="text-brown-900 font-bold">Closed key set</h4>
+          </div>
+          <p class="text-[13px] text-brown-700 leading-[1.55]">Every finding item conforms to a closed top-level key schema with required fields and typed severity ladder.</p>
+        </div>
+        <div class="rounded-xl bg-cream-50 ring-1 ring-brown-200 p-5 card">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="font-mono text-[11px] font-bold text-brown-950 bg-gold-300 px-2 py-0.5 rounded">§OUTPUT CONTRACT</span>
+            <h4 class="text-brown-900 font-bold">Daily report layout</h4>
+          </div>
+          <p class="text-[13px] text-brown-700 leading-[1.55]">Frontmatter, summary totals, findings list, STATE-INDEX reference — exact shape, no drift.</p>
+        </div>
+        <div class="rounded-xl bg-cream-50 ring-1 ring-brown-200 p-5 card">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="font-mono text-[11px] font-bold text-brown-950 bg-gold-300 px-2 py-0.5 rounded">§Step 0–8</span>
+            <h4 class="text-brown-900 font-bold">Scan procedure</h4>
+          </div>
+          <p class="text-[13px] text-brown-700 leading-[1.55]">Step-by-step of how the auditor traverses a repo, with a self-conformance checkpoint at Step 7.5.</p>
+        </div>
+        <div class="rounded-xl bg-cream-50 ring-1 ring-terracotta-600/40 p-5 card">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="font-mono text-[11px] font-bold text-cream-50 bg-terracotta-600 px-2 py-0.5 rounded">§Step 7.5c</span>
+            <h4 class="text-brown-900 font-bold">Anti-gaming (X-rules)</h4>
+          </div>
+          <p class="text-[13px] text-brown-700 leading-[1.55]">Five protected items the analyzer is forbidden from weakening: null-finding warning, no mass-null, no-deletion-to-pass, files_scanned honesty, atomic persist.</p>
+        </div>
+        <div class="rounded-xl bg-cream-50 ring-1 ring-brown-200 p-5 card">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="font-mono text-[11px] font-bold text-brown-950 bg-gold-300 px-2 py-0.5 rounded">§EVIDENCE</span>
+            <h4 class="text-brown-900 font-bold">Redaction contract</h4>
+          </div>
+          <p class="text-[13px] text-brown-700 leading-[1.55]">Secrets, tokens, emails, usernames in paths — all redacted before a finding quotes an excerpt.</p>
+        </div>
+        <div class="rounded-xl bg-cream-50 ring-1 ring-brown-200 p-5 card">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="font-mono text-[11px] font-bold text-brown-950 bg-gold-300 px-2 py-0.5 rounded">§13 HITL</span>
+            <h4 class="text-brown-900 font-bold">Human-in-the-loop banner</h4>
+          </div>
+          <p class="text-[13px] text-brown-700 leading-[1.55]">The auditor surfaces high-risk findings behind a HITL banner before acting autonomously.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- RULE FAMILIES -->
+    <div class="mt-20">
+      <div class="eyebrow text-gold-600 mb-3">Rule families</div>
+      <h3 class="text-[28px] md:text-[36px] leading-[1.1] tracking-tight font-bold text-brown-900 mb-3">40 active rules. Six families.</h3>
+      <p class="text-[15px] text-brown-700 max-w-2xl">Each rule carries a stable <code class="font-mono text-gold-700">rule_id</code>, a frozen <code class="font-mono text-gold-700">audit_md_version_at_creation</code>, and a canonical § that can move without renaming the rule. The prefix tells you which family protects what.</p>
+
+      <div class="mt-8 grid md:grid-cols-2 gap-4">
+        <div class="rounded-2xl bg-cream-50 ring-1 ring-brown-200 p-6 card">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-3">
+              <span class="w-9 h-9 rounded-lg bg-brown-900 text-gold-400 font-mono font-bold flex items-center justify-center">R-</span>
+              <h4 class="text-brown-900 font-bold">Anti-drift</h4>
+            </div>
+            <div class="text-[28px] font-bold text-brown-900">26</div>
+          </div>
+          <p class="text-[13px] text-brown-700 leading-[1.55]">From §CRITICAL ANTI-DRIFT RULES. Findings mirror reality — no fabrication, no unevidenced claims, closed top-level keys, bare-array state index, no helper-scripts workaround, evidence cited on invariants.</p>
+        </div>
+
+        <div class="rounded-2xl bg-cream-50 ring-1 ring-terracotta-600/40 p-6 card">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-3">
+              <span class="w-9 h-9 rounded-lg bg-terracotta-600 text-cream-50 font-mono font-bold flex items-center justify-center">X-</span>
+              <h4 class="text-brown-900 font-bold">Anti-gaming</h4>
+            </div>
+            <div class="text-[28px] font-bold text-terracotta-600">5</div>
+          </div>
+          <p class="text-[13px] text-brown-700 leading-[1.55]"><strong class="text-terracotta-600">Protected from analyzer weakening</strong> (ANALYZER.md HARD RULE 4). Null-finding warning quality, no category-mass-null, no-deletion-to-pass, files_scanned honesty, atomic persist.</p>
+        </div>
+
+        <div class="rounded-2xl bg-cream-50 ring-1 ring-brown-200 p-6 card">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-3">
+              <span class="w-9 h-9 rounded-lg bg-gold-500 text-brown-950 font-mono font-bold flex items-center justify-center">S-</span>
+              <h4 class="text-brown-900 font-bold">Schema</h4>
+            </div>
+            <div class="text-[28px] font-bold text-gold-700">4</div>
+          </div>
+          <p class="text-[13px] text-brown-700 leading-[1.55]">From §ITEM SCHEMA, §DAILY REPORT LAYOUT, §STATE FILES. Closed key sets, required fields, typed severity ladders.</p>
+        </div>
+
+        <div class="rounded-2xl bg-cream-50 ring-1 ring-brown-200 p-6 card">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-3">
+              <span class="w-9 h-9 rounded-lg bg-ochre-600 text-cream-50 font-mono font-bold flex items-center justify-center">P-</span>
+              <h4 class="text-brown-900 font-bold">Procedure</h4>
+            </div>
+            <div class="text-[28px] font-bold text-ochre-600">1</div>
+          </div>
+          <p class="text-[13px] text-brown-700 leading-[1.55]">From §SCAN PROCEDURE Steps 0–8 and §Step 7.5 self-conformance items. The how-the-auditor-moves-through-the-repo rules.</p>
+        </div>
+
+        <div class="rounded-2xl bg-cream-50 ring-1 ring-brown-200 p-6 card">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-3">
+              <span class="w-9 h-9 rounded-lg bg-olive-600 text-cream-50 font-mono font-bold flex items-center justify-center">O-</span>
+              <h4 class="text-brown-900 font-bold">Output</h4>
+            </div>
+            <div class="text-[28px] font-bold text-olive-600">2</div>
+          </div>
+          <p class="text-[13px] text-brown-700 leading-[1.55]">From §OUTPUT CONTRACT, §INVOCATION, §OPERATING MODES. The shape of the daily report and mode switches.</p>
+        </div>
+
+        <div class="rounded-2xl bg-cream-50 ring-1 ring-brown-200 p-6 card">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-3">
+              <span class="w-9 h-9 rounded-lg bg-info-600 text-cream-50 font-mono font-bold flex items-center justify-center">C-</span>
+              <h4 class="text-brown-900 font-bold">Configuration</h4>
+            </div>
+            <div class="text-[28px] font-bold text-info-600">2</div>
+          </div>
+          <p class="text-[13px] text-brown-700 leading-[1.55]">From §CONFIG, §BUDGETS, §CONFIGURATION. Customizable variables externalized via <code class="font-mono text-gold-700">.audit/config.yaml</code>.</p>
+        </div>
+      </div>
+
+      <!-- Family bar -->
+      <div class="mt-8 rounded-2xl bg-cream-50 ring-1 ring-brown-200 p-6">
+        <div class="eyebrow text-brown-600 mb-4">Family distribution</div>
+        <div class="flex rounded-lg overflow-hidden h-4 mb-3 ring-1 ring-brown-200">
+          <div style="width:65%"   class="bg-brown-900"      title="R- (26)"></div>
+          <div style="width:12.5%" class="bg-terracotta-600" title="X- (5)"></div>
+          <div style="width:10%"   class="bg-gold-500"       title="S- (4)"></div>
+          <div style="width:2.5%"  class="bg-ochre-600"      title="P- (1)"></div>
+          <div style="width:5%"    class="bg-olive-600"      title="O- (2)"></div>
+          <div style="width:5%"    class="bg-info-600"       title="C- (2)"></div>
+        </div>
+        <div class="flex flex-wrap gap-x-6 gap-y-2 text-[12px] text-brown-700 font-mono">
+          <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-brown-900"></span>R- 26</span>
+          <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-terracotta-600"></span>X- 5</span>
+          <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-gold-500"></span>S- 4</span>
+          <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-ochre-600"></span>P- 1</span>
+          <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-olive-600"></span>O- 2</span>
+          <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-info-600"></span>C- 2</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- FIXTURES -->
+    <div class="mt-20">
+      <div class="eyebrow text-gold-600 mb-3">Fixtures</div>
+      <h3 class="text-[28px] md:text-[36px] leading-[1.1] tracking-tight font-bold text-brown-900 mb-3">Eight deterministic fixtures.</h3>
+      <p class="text-[15px] text-brown-700 max-w-2xl">Each fixture is a tiny representative repo, a prompt template, and a list of rules it exercises. Deterministic so re-runs don't introduce noise. Cross-product with models and IDEs gives 81 baseline cells.</p>
+
+      <div class="mt-8 grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="rounded-xl bg-cream-50 ring-1 ring-brown-200 p-5 card">
+          <div class="font-mono text-[11px] font-bold text-gold-700 mb-1">F001</div>
+          <div class="text-brown-900 font-bold mb-1.5">First-pass audit</div>
+          <div class="text-[12px] text-brown-700 leading-[1.55]">Cold run on a fresh repo — exercises the full Step 0–8 procedure.</div>
+        </div>
+        <div class="rounded-xl bg-cream-50 ring-1 ring-brown-200 p-5 card">
+          <div class="font-mono text-[11px] font-bold text-gold-700 mb-1">F002</div>
+          <div class="text-brown-900 font-bold mb-1.5">Resume existing</div>
+          <div class="text-[12px] text-brown-700 leading-[1.55]">Re-enters a partially-audited repo; respects STATE-INDEX and the resume protocol.</div>
+        </div>
+        <div class="rounded-xl bg-cream-50 ring-1 ring-brown-200 p-5 card">
+          <div class="font-mono text-[11px] font-bold text-gold-700 mb-1">F003</div>
+          <div class="text-brown-900 font-bold mb-1.5">Redaction</div>
+          <div class="text-[12px] text-brown-700 leading-[1.55]">Secrets, tokens, emails, and user-path leaks inline in code — verifies redaction.</div>
+        </div>
+        <div class="rounded-xl bg-cream-50 ring-1 ring-brown-200 p-5 card">
+          <div class="font-mono text-[11px] font-bold text-gold-700 mb-1">F004</div>
+          <div class="text-brown-900 font-bold mb-1.5">Null-finding honesty</div>
+          <div class="text-[12px] text-brown-700 leading-[1.55]">A clean repo — the auditor must emit <strong>no findings</strong>, not fabricate low-severity filler.</div>
+        </div>
+        <div class="rounded-xl bg-cream-50 ring-1 ring-brown-200 p-5 card">
+          <div class="font-mono text-[11px] font-bold text-gold-700 mb-1">F005</div>
+          <div class="text-brown-900 font-bold mb-1.5">Schema conformance</div>
+          <div class="text-[12px] text-brown-700 leading-[1.55]">Stress tests §ITEM SCHEMA — closed keys, required fields, severity ladder.</div>
+        </div>
+        <div class="rounded-xl bg-cream-50 ring-1 ring-gold-500/60 p-5 card">
+          <div class="font-mono text-[11px] font-bold text-gold-700 mb-1">F006</div>
+          <div class="text-brown-900 font-bold mb-1.5">Cross-model drift</div>
+          <div class="text-[12px] text-brown-700 leading-[1.55]">Surfaces differences across GPT / Claude / Gemini. PE Practice 5 lives here.</div>
+        </div>
+        <div class="rounded-xl bg-cream-50 ring-1 ring-brown-200 p-5 card">
+          <div class="font-mono text-[11px] font-bold text-gold-700 mb-1">F007</div>
+          <div class="text-brown-900 font-bold mb-1.5">Anti-gaming</div>
+          <div class="text-[12px] text-brown-700 leading-[1.55]">Tempts the model to mass-null or delete findings to pass. Exercises X-rules.</div>
+        </div>
+        <div class="rounded-xl bg-cream-50 ring-1 ring-brown-200 p-5 card">
+          <div class="font-mono text-[11px] font-bold text-gold-700 mb-1">F008</div>
+          <div class="text-brown-900 font-bold mb-1.5">Worked examples</div>
+          <div class="text-[12px] text-brown-700 leading-[1.55]">Validates paired WRONG/RIGHT examples guide model output (PE Practice 6).</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- USE IT — HOW TO AUDIT ANY PROJECT -->
+<section id="use" class="py-24 border-t border-brown-100">
+  <div class="max-w-7xl mx-auto px-6">
+    <div class="max-w-3xl">
+      <div class="eyebrow text-gold-600 mb-4">03 · Use it</div>
+      <h2 class="text-[40px] md:text-[52px] leading-[1.05] tracking-tight font-bold text-brown-900 mb-5">Run it on any project.</h2>
+      <p class="text-[17px] leading-[1.6] text-brown-800">AUDIT.md is model-agnostic and IDE-agnostic. Hand the spec to any reasonably capable LLM, point it at a repo, invoke one of three modes, and read the report. The spec handles the rest — state files, resumption, HITL banners, evidence redaction.</p>
+    </div>
+
+    <!-- 3-step flow -->
+    <div class="mt-12 grid md:grid-cols-3 gap-5">
+      <div class="relative rounded-2xl bg-cream-50 ring-1 ring-brown-200 shadow-warm-sm p-6 card">
+        <div class="absolute -top-3 -left-2 w-9 h-9 rounded-full bg-gold-500 text-brown-950 font-mono text-[15px] font-bold flex items-center justify-center ring-4 ring-cream-50">1</div>
+        <div class="pt-3">
+          <h4 class="text-brown-900 font-bold text-[18px] mb-2">Attach the spec</h4>
+          <p class="text-[13px] text-brown-700 leading-[1.55] mb-4">Drop <code class="font-mono text-gold-700">AUDIT.md</code> into your IDE context (Cursor, Antigravity, Claude desktop, Copilot, Cline, Continue, Windsurf, Zed) — or paste it into a chat turn. Attach the repo root alongside.</p>
+          <div class="text-[11px] font-mono text-brown-500">~150 KB · one file · no deps</div>
+        </div>
+      </div>
+      <div class="relative rounded-2xl bg-cream-50 ring-1 ring-brown-200 shadow-warm-sm p-6 card">
+        <div class="absolute -top-3 -left-2 w-9 h-9 rounded-full bg-gold-500 text-brown-950 font-mono text-[15px] font-bold flex items-center justify-center ring-4 ring-cream-50">2</div>
+        <div class="pt-3">
+          <h4 class="text-brown-900 font-bold text-[18px] mb-2">Pick a mode</h4>
+          <p class="text-[13px] text-brown-700 leading-[1.55] mb-4">First-pass, resume, or targeted scope. The spec reads the <code class="font-mono text-gold-700">.audit/</code> folder at repo root and picks up where the last run stopped.</p>
+          <div class="text-[11px] font-mono text-brown-500">first-pass · resume · scoped</div>
+        </div>
+      </div>
+      <div class="relative rounded-2xl bg-cream-50 ring-1 ring-brown-200 shadow-warm-sm p-6 card">
+        <div class="absolute -top-3 -left-2 w-9 h-9 rounded-full bg-gold-500 text-brown-950 font-mono text-[15px] font-bold flex items-center justify-center ring-4 ring-cream-50">3</div>
+        <div class="pt-3">
+          <h4 class="text-brown-900 font-bold text-[18px] mb-2">Read the report</h4>
+          <p class="text-[13px] text-brown-700 leading-[1.55] mb-4">Output lands in <code class="font-mono text-gold-700">.audit/AUDIT-&lt;date&gt;.md</code>. Findings are typed, evidenced, and redacted. HITL banners gate high-risk items.</p>
+          <div class="text-[11px] font-mono text-brown-500">frontmatter · findings · STATE-INDEX</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Invocation examples -->
+    <div class="mt-12 grid lg:grid-cols-2 gap-5">
+      <div class="rounded-2xl bg-brown-900 p-1 shadow-warm-md">
+        <div class="px-5 py-3 flex items-center justify-between border-b border-brown-800">
+          <div class="eyebrow text-gold-400">First-pass audit</div>
+          <div class="font-mono text-[11px] text-brown-300">claude / cursor / any IDE</div>
+        </div>
+<pre class="code !rounded-t-none !border-0"><span class="c-comment"># In your IDE, with AUDIT.md and the repo in context:</span>
+<span class="c-cmd">Run AUDIT.md in first-pass mode on this repo.</span>
+<span class="c-cmd">Write the report to .audit/AUDIT-$(date -u +%Y-%m-%d).md</span>
+<span class="c-cmd">and the state files to .audit/STATE-INDEX.md.</span>
+<span class="c-cmd">Stop at the first HITL banner for my approval.</span></pre>
+      </div>
+
+      <div class="rounded-2xl bg-brown-900 p-1 shadow-warm-md">
+        <div class="px-5 py-3 flex items-center justify-between border-b border-brown-800">
+          <div class="eyebrow text-gold-400">Resume existing</div>
+          <div class="font-mono text-[11px] text-brown-300">picks up mid-audit</div>
+        </div>
+<pre class="code !rounded-t-none !border-0"><span class="c-comment"># AUDIT.md honors its own resume contract:</span>
+<span class="c-cmd">Resume the audit from .audit/STATE-INDEX.md.</span>
+<span class="c-cmd">Skip files already marked done; continue from</span>
+<span class="c-cmd">the in-progress file at the recorded offset.</span>
+<span class="c-cmd">Append to today's report, do not overwrite.</span></pre>
+      </div>
+
+      <div class="rounded-2xl bg-brown-900 p-1 shadow-warm-md">
+        <div class="px-5 py-3 flex items-center justify-between border-b border-brown-800">
+          <div class="eyebrow text-gold-400">Scoped scan</div>
+          <div class="font-mono text-[11px] text-brown-300">one directory · one rule family</div>
+        </div>
+<pre class="code !rounded-t-none !border-0"><span class="c-comment"># Narrow the scope with §CONFIG overrides:</span>
+<span class="c-cmd">Apply AUDIT.md to src/auth/ only.</span>
+<span class="c-cmd">Filter findings to severity &gt;= medium</span>
+<span class="c-cmd">and categories: [secrets, evidence-redaction].</span>
+<span class="c-cmd">Output inline; do not write state files.</span></pre>
+      </div>
+
+      <div class="rounded-2xl bg-gold-500 p-1 shadow-warm-md">
+        <div class="px-5 py-3 flex items-center justify-between border-b border-gold-600">
+          <div class="eyebrow text-brown-950">Verify the harness</div>
+          <div class="font-mono text-[11px] text-brown-900">once, at repo root</div>
+        </div>
+<pre class="code !rounded-t-none !border-0"><span class="c-comment"># Confirm the spec and harness are in sync:</span>
+<span class="c-cmd">shasum -a 256 AUDIT.md</span>
+<span class="c-comment"># Expect the fingerprint baked into baseline.json</span>
+
+<span class="c-cmd">python3 fine-tune/evals/scripts/coverage-sweep.py</span>
+<span class="c-comment"># Expected last line:</span>
+<span class="c-comment"># PROBLEMS: none — baseline and registry consistent.</span></pre>
+      </div>
+    </div>
+
+    <!-- Outputs -->
+    <div class="mt-12 rounded-2xl bg-cream-50 ring-1 ring-brown-200 p-8 shadow-warm-sm">
+      <div class="eyebrow text-brown-600 mb-5">What the auditor produces</div>
+      <div class="grid md:grid-cols-4 gap-4">
+        <div>
+          <div class="w-9 h-9 rounded-lg bg-brown-900 flex items-center justify-center mb-3">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#F4BA17" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </div>
+          <div class="text-brown-900 font-bold text-[15px] mb-1">AUDIT-&lt;date&gt;.md</div>
+          <div class="text-[12px] text-brown-700 leading-[1.5]">Frontmatter + summary totals + findings list + a link to the state index.</div>
+        </div>
+        <div>
+          <div class="w-9 h-9 rounded-lg bg-brown-900 flex items-center justify-center mb-3">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#F4BA17" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/></svg>
+          </div>
+          <div class="text-brown-900 font-bold text-[15px] mb-1">STATE-INDEX.md</div>
+          <div class="text-[12px] text-brown-700 leading-[1.5]">Bare-array state file that makes the audit resumable without re-scanning.</div>
+        </div>
+        <div>
+          <div class="w-9 h-9 rounded-lg bg-brown-900 flex items-center justify-center mb-3">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#F4BA17" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          </div>
+          <div class="text-brown-900 font-bold text-[15px] mb-1">HITL banners</div>
+          <div class="text-[12px] text-brown-700 leading-[1.5]">High-risk findings pause for human approval before any action.</div>
+        </div>
+        <div>
+          <div class="w-9 h-9 rounded-lg bg-brown-900 flex items-center justify-center mb-3">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#F4BA17" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div class="text-brown-900 font-bold text-[15px] mb-1">Typed severity</div>
+          <div class="text-[12px] text-brown-700 leading-[1.5]">A closed ladder — info · low · medium · high · critical — no freeform tags.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FINE-TUNE — MECHANISM + GUIDE -->
+<section id="fine-tune" class="py-24 bg-brown-900 text-cream-50 border-y border-brown-950 relative overflow-hidden">
+  <div class="absolute inset-0 tex-dots opacity-10"></div>
+  <div class="relative max-w-7xl mx-auto px-6">
+    <div class="max-w-3xl">
+      <div class="eyebrow text-gold-400 mb-4">04 · Fine-tune</div>
+      <h2 class="text-[40px] md:text-[52px] leading-[1.05] tracking-tight font-bold text-cream-50 mb-5">How an edit gets through.</h2>
+      <p class="text-[17px] leading-[1.6] text-brown-100">Every edit follows a seven-stage gauntlet. The analyzer can only <strong>propose</strong> — never apply. A human flips <code class="font-mono text-gold-400">PROPOSED → ACCEPTED</code>. Regression runs first, baseline mutations are atomic, and the PE rubric pressure-tests the result.</p>
+    </div>
+
+    <!-- 7-step flow -->
+    <div class="mt-14 grid md:grid-cols-7 gap-3">
+      <div class="rounded-xl bg-brown-800 ring-1 ring-brown-700 p-5 card relative">
+        <div class="absolute -top-3 left-4 w-8 h-8 rounded-full bg-gold-500 text-brown-950 font-mono text-[13px] font-bold flex items-center justify-center ring-4 ring-brown-900">1</div>
+        <div class="text-cream-50 font-bold text-[14px] mt-4 mb-1">Scan capture</div>
+        <div class="text-[11px] text-brown-300 leading-[1.5]">Run a fixture — or a real audit — record the output.</div>
+      </div>
+      <div class="rounded-xl bg-brown-800 ring-1 ring-brown-700 p-5 card relative">
+        <div class="absolute -top-3 left-4 w-8 h-8 rounded-full bg-gold-500 text-brown-950 font-mono text-[13px] font-bold flex items-center justify-center ring-4 ring-brown-900">2</div>
+        <div class="text-cream-50 font-bold text-[14px] mt-4 mb-1">Analyzer</div>
+        <div class="text-[11px] text-brown-300 leading-[1.5]">Read-only meta-prompt clusters drift and emits PROPOSED-EDITS.</div>
+      </div>
+      <div class="rounded-xl bg-brown-800 ring-1 ring-gold-500/60 p-5 card relative">
+        <div class="absolute -top-3 left-4 w-8 h-8 rounded-full bg-gold-400 text-brown-950 font-mono text-[13px] font-bold flex items-center justify-center ring-4 ring-brown-900">3</div>
+        <div class="text-cream-50 font-bold text-[14px] mt-4 mb-1">Human review</div>
+        <div class="text-[11px] text-brown-200 leading-[1.5]">Approve / reject / defer. X-rules never weaken.</div>
+      </div>
+      <div class="rounded-xl bg-brown-800 ring-1 ring-brown-700 p-5 card relative">
+        <div class="absolute -top-3 left-4 w-8 h-8 rounded-full bg-gold-500 text-brown-950 font-mono text-[13px] font-bold flex items-center justify-center ring-4 ring-brown-900">4</div>
+        <div class="text-cream-50 font-bold text-[14px] mt-4 mb-1">Apply + refingerprint</div>
+        <div class="text-[11px] text-brown-300 leading-[1.5]">Patch AUDIT.md, bump sha256, update companion pin.</div>
+      </div>
+      <div class="rounded-xl bg-brown-800 ring-1 ring-brown-700 p-5 card relative">
+        <div class="absolute -top-3 left-4 w-8 h-8 rounded-full bg-gold-500 text-brown-950 font-mono text-[13px] font-bold flex items-center justify-center ring-4 ring-brown-900">5</div>
+        <div class="text-cream-50 font-bold text-[14px] mt-4 mb-1">Re-run fixtures</div>
+        <div class="text-[11px] text-brown-300 leading-[1.5]">Especially F007 + F008; capture per-rule pass/fail.</div>
+      </div>
+      <div class="rounded-xl bg-brown-800 ring-1 ring-brown-700 p-5 card relative">
+        <div class="absolute -top-3 left-4 w-8 h-8 rounded-full bg-gold-500 text-brown-950 font-mono text-[13px] font-bold flex items-center justify-center ring-4 ring-brown-900">6</div>
+        <div class="text-cream-50 font-bold text-[14px] mt-4 mb-1">Coverage-sweep</div>
+        <div class="text-[11px] text-brown-300 leading-[1.5]">Integrity gate. Rule-survival invariant. PROBLEMS: none.</div>
+      </div>
+      <div class="rounded-xl bg-brown-800 ring-1 ring-brown-700 p-5 card relative">
+        <div class="absolute -top-3 left-4 w-8 h-8 rounded-full bg-gold-500 text-brown-950 font-mono text-[13px] font-bold flex items-center justify-center ring-4 ring-brown-900">7</div>
+        <div class="text-cream-50 font-bold text-[14px] mt-4 mb-1">Promote baseline</div>
+        <div class="text-[11px] text-brown-300 leading-[1.5]">Atomic merge via <span class="font-mono text-gold-400">promote-baseline.sh</span>.</div>
+      </div>
+    </div>
+
+    <!-- Path A / Path B -->
+    <div class="mt-16 grid md:grid-cols-2 gap-5">
+      <div class="rounded-2xl bg-brown-800 ring-1 ring-brown-700 p-7 card">
+        <div class="eyebrow text-gold-400 mb-2">Path A</div>
+        <h3 class="text-[26px] font-bold text-cream-50 mb-3">Autonomous</h3>
+        <p class="text-[14px] text-brown-200 leading-[1.6] mb-5">Claude desktop / Cowork mode drives the whole cycle in one session — read state, propose, show, apply on approval, re-run, promote.</p>
+        <ul class="space-y-2.5 text-[14px] text-cream-50">
+          <li class="flex items-start gap-2"><span class="text-gold-400 mt-0.5">→</span>Single-session end-to-end</li>
+          <li class="flex items-start gap-2"><span class="text-gold-400 mt-0.5">→</span>Human only approves the diff</li>
+          <li class="flex items-start gap-2"><span class="text-gold-400 mt-0.5">→</span>Auto-memory tracks cycle history</li>
+        </ul>
+      </div>
+      <div class="rounded-2xl bg-brown-800 ring-1 ring-gold-500/50 p-7 card">
+        <div class="eyebrow text-gold-400 mb-2">Path B</div>
+        <h3 class="text-[26px] font-bold text-cream-50 mb-3">Manual · cross-model</h3>
+        <p class="text-[14px] text-brown-200 leading-[1.6] mb-5">Drive audits from Cursor, Antigravity, Copilot, Cline, Continue, Windsurf, Zed. The path that earns PE Practice 5 — cross-model portability.</p>
+        <ul class="space-y-2.5 text-[14px] text-cream-50">
+          <li class="flex items-start gap-2"><span class="text-gold-400 mt-0.5">→</span>Any IDE × any model</li>
+          <li class="flex items-start gap-2"><span class="text-gold-400 mt-0.5">→</span>Surfaces real portability drift</li>
+          <li class="flex items-start gap-2"><span class="text-gold-400 mt-0.5">→</span>Runbook: <span class="font-mono text-gold-400">fine-tune/CROSS-MODEL-RUNBOOK.md</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Example prompt -->
+    <div class="mt-10 rounded-2xl bg-brown-950 ring-1 ring-gold-500/40 p-1">
+      <div class="px-5 py-3 flex items-center justify-between border-b border-brown-900">
+        <div class="eyebrow text-gold-400">Example Path A invocation</div>
+        <div class="font-mono text-[11px] text-brown-300">one session · claude desktop · cowork mode</div>
+      </div>
+<pre class="code !rounded-t-none !border-0"><span class="c-comment"># Ask Claude to run one full fine-tune cycle:</span>
+
+<span class="c-cmd">Run one fine-tune cycle on AUDIT.md.</span>
+<span class="c-cmd">Target: lift Practice 6 (few-shot examples) from 4/5 to 5/5.</span>
+<span class="c-cmd">Propose the edit, show me, apply on my approval,</span>
+<span class="c-cmd">re-run the regression, update the baseline.</span>
+
+<span class="c-comment"># Claude will:</span>
+<span class="c-comment"># · read AUDIT.md, rule-registry.json, baseline.json, pe-best-practices.md</span>
+<span class="c-comment"># · draft PROPOSED-EDITS-&lt;date&gt;-&lt;scope&gt;.md with WRONG/RIGHT snippets</span>
+<span class="c-comment"># · pause for approval — you flip PROPOSED → ACCEPTED</span>
+<span class="c-comment"># · patch AUDIT.md, bump fingerprint, run coverage-sweep.py</span>
+<span class="c-comment"># · refresh .auto-memory/audit_md_project_state.md</span></pre>
+    </div>
+  </div>
+</section>
+
+<!-- PE RUBRIC -->
+<section id="rubric" class="py-24 bg-cream-100 border-b border-brown-100">
+  <div class="max-w-7xl mx-auto px-6">
+    <div class="grid md:grid-cols-2 gap-12 items-start">
+      <div>
+        <div class="eyebrow text-gold-600 mb-4">The PE rubric</div>
+        <h2 class="text-[36px] md:text-[44px] leading-[1.05] tracking-tight font-bold text-brown-900 mb-5">16 prompt-engineering practices.</h2>
+        <p class="text-[16px] leading-[1.6] text-brown-800 mb-7">Each practice scored 1–5 against the current AUDIT.md fingerprint. Total <strong>79/80 (0.9875)</strong>. Only <span class="gold font-bold">Practice 5 — model portability</span> is below 5/5, pending cross-model F006 re-fire under GPT-4.1 and Gemini-2.5-Pro.</p>
+        <div class="rounded-2xl bg-cream-50 ring-1 ring-gold-500/50 p-6 shadow-warm-sm">
+          <div class="flex items-baseline gap-2 mb-3">
+            <span class="text-[44px] font-bold text-brown-900 leading-none">79</span>
+            <span class="text-brown-500 text-lg">/ 80</span>
+            <span class="ml-auto font-mono text-[15px] text-gold-700 font-bold">0.9875</span>
+          </div>
+          <div class="h-2.5 rounded-full bg-brown-100 overflow-hidden">
+            <div class="h-full bg-gradient-to-r from-gold-500 to-olive-600" style="width:98.75%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Practice grid -->
+      <div class="grid grid-cols-4 gap-2">
+        <!-- 1 -->
+        <div class="aspect-square rounded-lg bg-olive-600/15 ring-1 ring-olive-600/40 p-2.5 flex flex-col justify-between" title="1: single canonical home — 5/5">
+          <div class="font-mono text-[11px] font-bold text-olive-600">01</div>
+          <div class="text-[11px] text-brown-800 leading-tight font-bold">canonical home</div>
+          <div class="font-mono text-[11px] text-brown-900 font-bold">5/5</div>
+        </div>
+        <div class="aspect-square rounded-lg bg-olive-600/15 ring-1 ring-olive-600/40 p-2.5 flex flex-col justify-between" title="2: token efficiency — 5/5">
+          <div class="font-mono text-[11px] font-bold text-olive-600">02</div>
+          <div class="text-[11px] text-brown-800 leading-tight font-bold">token efficiency</div>
+          <div class="font-mono text-[11px] text-brown-900 font-bold">5/5</div>
+        </div>
+        <div class="aspect-square rounded-lg bg-olive-600/15 ring-1 ring-olive-600/40 p-2.5 flex flex-col justify-between" title="3: stable anchoring — 5/5">
+          <div class="font-mono text-[11px] font-bold text-olive-600">03</div>
+          <div class="text-[11px] text-brown-800 leading-tight font-bold">stable anchors</div>
+          <div class="font-mono text-[11px] text-brown-900 font-bold">5/5</div>
+        </div>
+        <div class="aspect-square rounded-lg bg-olive-600/15 ring-1 ring-olive-600/40 p-2.5 flex flex-col justify-between" title="4: variables vs logic — 5/5">
+          <div class="font-mono text-[11px] font-bold text-olive-600">04</div>
+          <div class="text-[11px] text-brown-800 leading-tight font-bold">vars vs logic</div>
+          <div class="font-mono text-[11px] text-brown-900 font-bold">5/5</div>
+        </div>
+        <!-- Practice 5 - highlighted -->
+        <div class="aspect-square rounded-lg bg-gold-500/25 ring-1 ring-gold-500/70 p-2.5 flex flex-col justify-between" title="5: model portability — 4/5">
+          <div class="font-mono text-[11px] font-bold text-gold-700">05</div>
+          <div class="text-[11px] text-brown-900 leading-tight font-bold">model portability</div>
+          <div class="font-mono text-[11px] text-brown-900 font-bold">4/5</div>
+        </div>
+        <div class="aspect-square rounded-lg bg-olive-600/15 ring-1 ring-olive-600/40 p-2.5 flex flex-col justify-between" title="6: worked examples — 5/5">
+          <div class="font-mono text-[11px] font-bold text-olive-600">06</div>
+          <div class="text-[11px] text-brown-800 leading-tight font-bold">worked examples</div>
+          <div class="font-mono text-[11px] text-brown-900 font-bold">5/5</div>
+        </div>
+        <div class="aspect-square rounded-lg bg-olive-600/15 ring-1 ring-olive-600/40 p-2.5 flex flex-col justify-between" title="7: refusal contract — 5/5">
+          <div class="font-mono text-[11px] font-bold text-olive-600">07</div>
+          <div class="text-[11px] text-brown-800 leading-tight font-bold">refusal contract</div>
+          <div class="font-mono text-[11px] text-brown-900 font-bold">5/5</div>
+        </div>
+        <div class="aspect-square rounded-lg bg-olive-600/15 ring-1 ring-olive-600/40 p-2.5 flex flex-col justify-between" title="8: anti-gaming — 5/5">
+          <div class="font-mono text-[11px] font-bold text-olive-600">08</div>
+          <div class="text-[11px] text-brown-800 leading-tight font-bold">anti-gaming</div>
+          <div class="font-mono text-[11px] text-brown-900 font-bold">5/5</div>
+        </div>
+        <div class="aspect-square rounded-lg bg-olive-600/15 ring-1 ring-olive-600/40 p-2.5 flex flex-col justify-between" title="9: self-conformance — 5/5">
+          <div class="font-mono text-[11px] font-bold text-olive-600">09</div>
+          <div class="text-[11px] text-brown-800 leading-tight font-bold">self-conformance</div>
+          <div class="font-mono text-[11px] text-brown-900 font-bold">5/5</div>
+        </div>
+        <div class="aspect-square rounded-lg bg-olive-600/15 ring-1 ring-olive-600/40 p-2.5 flex flex-col justify-between" title="10: output contract — 5/5">
+          <div class="font-mono text-[11px] font-bold text-olive-600">10</div>
+          <div class="text-[11px] text-brown-800 leading-tight font-bold">output contract</div>
+          <div class="font-mono text-[11px] text-brown-900 font-bold">5/5</div>
+        </div>
+        <div class="aspect-square rounded-lg bg-olive-600/15 ring-1 ring-olive-600/40 p-2.5 flex flex-col justify-between" title="11: anti-drift — 5/5">
+          <div class="font-mono text-[11px] font-bold text-olive-600">11</div>
+          <div class="text-[11px] text-brown-800 leading-tight font-bold">anti-drift</div>
+          <div class="font-mono text-[11px] text-brown-900 font-bold">5/5</div>
+        </div>
+        <div class="aspect-square rounded-lg bg-olive-600/15 ring-1 ring-olive-600/40 p-2.5 flex flex-col justify-between" title="12: failure modes named — 5/5">
+          <div class="font-mono text-[11px] font-bold text-olive-600">12</div>
+          <div class="text-[11px] text-brown-800 leading-tight font-bold">failure modes</div>
+          <div class="font-mono text-[11px] text-brown-900 font-bold">5/5</div>
+        </div>
+        <div class="aspect-square rounded-lg bg-olive-600/15 ring-1 ring-olive-600/40 p-2.5 flex flex-col justify-between" title="13: config externalized — 5/5">
+          <div class="font-mono text-[11px] font-bold text-olive-600">13</div>
+          <div class="text-[11px] text-brown-800 leading-tight font-bold">config external</div>
+          <div class="font-mono text-[11px] text-brown-900 font-bold">5/5</div>
+        </div>
+        <div class="aspect-square rounded-lg bg-olive-600/15 ring-1 ring-olive-600/40 p-2.5 flex flex-col justify-between" title="14: determinism cues — 5/5">
+          <div class="font-mono text-[11px] font-bold text-olive-600">14</div>
+          <div class="text-[11px] text-brown-800 leading-tight font-bold">determinism</div>
+          <div class="font-mono text-[11px] text-brown-900 font-bold">5/5</div>
+        </div>
+        <div class="aspect-square rounded-lg bg-olive-600/15 ring-1 ring-olive-600/40 p-2.5 flex flex-col justify-between" title="15: evidence redaction — 5/5">
+          <div class="font-mono text-[11px] font-bold text-olive-600">15</div>
+          <div class="text-[11px] text-brown-800 leading-tight font-bold">evidence redact</div>
+          <div class="font-mono text-[11px] text-brown-900 font-bold">5/5</div>
+        </div>
+        <div class="aspect-square rounded-lg bg-olive-600/15 ring-1 ring-olive-600/40 p-2.5 flex flex-col justify-between" title="16: mode separation — 5/5">
+          <div class="font-mono text-[11px] font-bold text-olive-600">16</div>
+          <div class="text-[11px] text-brown-800 leading-tight font-bold">mode separation</div>
+          <div class="font-mono text-[11px] text-brown-900 font-bold">5/5</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- What 80 is based on + Path to 80/80 -->
+    <div class="mt-16 grid md:grid-cols-2 gap-5">
+      <!-- What 80 is based on -->
+      <div class="rounded-2xl bg-cream-50 ring-1 ring-brown-200 shadow-warm-sm p-8">
+        <div class="eyebrow text-brown-600 mb-3">What 80 is based on</div>
+        <h3 class="text-[24px] md:text-[28px] leading-[1.15] tracking-tight font-bold text-brown-900 mb-4">16 practices &times; 5 points.</h3>
+        <p class="text-[14px] text-brown-800 leading-[1.6] mb-5">The ceiling is not fixed. <code class="font-mono text-gold-700">max = 5 &times; N<sub>practices</sub></code>. Today N is 16, so the ceiling is 80. Add a 17<sup>th</sup> practice and the ceiling becomes 85.</p>
+        <div class="text-[12px] font-mono font-bold tracking-eyebrow uppercase text-brown-500 mb-2">Score scale &mdash; uniform across all practices</div>
+        <div class="rounded-xl ring-1 ring-brown-200 overflow-hidden">
+          <div class="grid grid-cols-[40px_1fr] text-[12px]">
+            <div class="bg-olive-600/15 px-3 py-2 font-mono font-bold text-olive-600 border-b border-brown-100">5</div>
+            <div class="px-3 py-2 text-brown-800 border-b border-brown-100">Best-in-class. Fully realized, no edge cases miss it.</div>
+            <div class="bg-olive-600/10 px-3 py-2 font-mono font-bold text-olive-600 border-b border-brown-100">4</div>
+            <div class="px-3 py-2 text-brown-800 border-b border-brown-100">Strong. Minor documented or harmless exceptions.</div>
+            <div class="bg-ochre-600/15 px-3 py-2 font-mono font-bold text-ochre-600 border-b border-brown-100">3</div>
+            <div class="px-3 py-2 text-brown-800 border-b border-brown-100">Adequate. Notable gaps, but not actively misleading.</div>
+            <div class="bg-terracotta-600/15 px-3 py-2 font-mono font-bold text-terracotta-600 border-b border-brown-100">2</div>
+            <div class="px-3 py-2 text-brown-800 border-b border-brown-100">Weak. Measurable drift or rework in some runs.</div>
+            <div class="bg-terracotta-600/25 px-3 py-2 font-mono font-bold text-terracotta-600">1</div>
+            <div class="px-3 py-2 text-brown-800">Absent or anti-pattern. The prompt works against it.</div>
+          </div>
+        </div>
+        <div class="mt-4 text-[12px] text-brown-600 leading-[1.55]">Hard gate: a proposed edit may never drop a single practice by &ge;2, and may never drop the TOTAL ratio by &ge;0.05 vs. the prior baseline.</div>
+      </div>
+
+      <!-- Path to 80/80 -->
+      <div class="rounded-2xl bg-gradient-to-br from-gold-500 to-gold-600 p-[1.5px] shadow-warm-md">
+        <div class="rounded-2xl bg-brown-900 text-cream-50 h-full p-8">
+          <div class="eyebrow text-gold-400 mb-3">Path to 80/80</div>
+          <h3 class="text-[24px] md:text-[28px] leading-[1.15] tracking-tight font-bold text-cream-50 mb-3">Practice 5 is the only gap.</h3>
+          <p class="text-[14px] text-brown-100 leading-[1.6] mb-6">Currently 4/5 &mdash; model-neutral phrasing (&ldquo;the agent&rdquo;) landed last cycle. The 5/5 bar is <em class="not-italic font-bold text-gold-300">empirical</em>: observed pass evidence in <code class="font-mono text-gold-300">baseline.json</code> under non-Claude models.</p>
+
+          <div class="space-y-3 mb-5">
+            <div class="flex items-start gap-3">
+              <span class="flex-shrink-0 w-7 h-7 rounded-md bg-gold-500 text-brown-950 font-mono font-bold text-[12px] flex items-center justify-center">1</span>
+              <div class="text-[13px] leading-[1.55]"><strong class="text-cream-50">Pick a non-Claude (model, IDE) combo.</strong> <span class="text-brown-200">GPT-4.1 + Cursor, or Gemini-2.5-Pro + Antigravity &mdash; held constant across the sweep.</span></div>
+            </div>
+            <div class="flex items-start gap-3">
+              <span class="flex-shrink-0 w-7 h-7 rounded-md bg-gold-500 text-brown-950 font-mono font-bold text-[12px] flex items-center justify-center">2</span>
+              <div class="text-[13px] leading-[1.55]"><strong class="text-cream-50">Run F006 (minimum) or F001&ndash;F008 (ideal).</strong> <span class="text-brown-200">Follow <code class="font-mono text-gold-300">fine-tune/CROSS-MODEL-RUNBOOK.md</code> end-to-end.</span></div>
+            </div>
+            <div class="flex items-start gap-3">
+              <span class="flex-shrink-0 w-7 h-7 rounded-md bg-gold-500 text-brown-950 font-mono font-bold text-[12px] flex items-center justify-center">3</span>
+              <div class="text-[13px] leading-[1.55]"><strong class="text-cream-50">Write capture.json per fixture.</strong> <span class="text-brown-200">Build a merge candidate, apply via <code class="font-mono text-gold-300">apply-merge-candidate.py</code>, verify with <code class="font-mono text-gold-300">coverage-sweep.py</code>.</span></div>
+            </div>
+            <div class="flex items-start gap-3">
+              <span class="flex-shrink-0 w-7 h-7 rounded-md bg-gold-500 text-brown-950 font-mono font-bold text-[12px] flex items-center justify-center">4</span>
+              <div class="text-[13px] leading-[1.55]"><strong class="text-cream-50">Any fixture failure is the gap.</strong> <span class="text-brown-200">The failure points at Claude-specific phrasing &mdash; rewrite, re-run, promote. A mini fine-tune cycle scoped to portability.</span></div>
+            </div>
+            <div class="flex items-start gap-3">
+              <span class="flex-shrink-0 w-7 h-7 rounded-md bg-gold-500 text-brown-950 font-mono font-bold text-[12px] flex items-center justify-center">5</span>
+              <div class="text-[13px] leading-[1.55]"><strong class="text-cream-50">Promote Practice 5 to 5/5</strong> <span class="text-brown-200">in <code class="font-mono text-gold-300">baseline.json &rarr; pe_scores</code> under the new fingerprint.</span></div>
+            </div>
+          </div>
+
+          <div class="pt-4 border-t border-brown-800 grid grid-cols-2 gap-3 text-[12px]">
+            <div>
+              <div class="eyebrow text-brown-300 mb-1">Min effort</div>
+              <div class="text-cream-50 font-bold">2&ndash;4 hours</div>
+              <div class="text-brown-300">1 combo &times; F006</div>
+            </div>
+            <div>
+              <div class="eyebrow text-brown-300 mb-1">Full sweep</div>
+              <div class="text-cream-50 font-bold">~ half day</div>
+              <div class="text-brown-300">2 combos &times; F001&ndash;F008</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Progress history -->
+    <div class="mt-10 rounded-2xl bg-cream-50 ring-1 ring-brown-200 shadow-warm-sm p-8">
+      <div class="eyebrow text-brown-600 mb-5">PE rubric history</div>
+      <div class="space-y-3">
+        <div class="flex items-center gap-3">
+          <span class="w-20 font-mono text-[11px] font-bold text-brown-600">v2 baseline</span>
+          <div class="flex-1 h-2.5 rounded-full bg-brown-100 overflow-hidden">
+            <div class="h-full bg-brown-400" style="width:78.75%"></div>
+          </div>
+          <span class="w-16 text-right font-mono text-[13px] font-bold text-brown-700">63/80</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="w-20 font-mono text-[11px] font-bold text-brown-600">v2 close</span>
+          <div class="flex-1 h-2.5 rounded-full bg-brown-100 overflow-hidden">
+            <div class="h-full bg-brown-500" style="width:86.25%"></div>
+          </div>
+          <span class="w-16 text-right font-mono text-[13px] font-bold text-brown-700">69/80</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="w-20 font-mono text-[11px] font-bold text-brown-600">v3</span>
+          <div class="flex-1 h-2.5 rounded-full bg-brown-100 overflow-hidden">
+            <div class="h-full bg-ochre-600" style="width:92.5%"></div>
+          </div>
+          <span class="w-16 text-right font-mono text-[13px] font-bold text-brown-800">74/80</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="w-20 font-mono text-[11px] font-bold text-gold-700">v4</span>
+          <div class="flex-1 h-2.5 rounded-full bg-brown-100 overflow-hidden">
+            <div class="h-full bg-gold-500" style="width:98.75%"></div>
+          </div>
+          <span class="w-16 text-right font-mono text-[13px] font-bold text-brown-900">79/80</span>
+        </div>
+      </div>
+      <p class="mt-6 text-[13px] text-brown-700">Every cycle is gated by <code class="font-mono text-gold-700">coverage-sweep.py</code> — an edit that gains a PE point but breaks a previously-passing cell is rejected.</p>
+    </div>
+  </div>
+</section>
+
+<!-- KEEPING THE LOOP CURRENT -->
+<section class="py-24 border-b border-brown-100">
+  <div class="max-w-7xl mx-auto px-6">
+    <div class="max-w-3xl">
+      <div class="eyebrow text-gold-600 mb-4">Keeping the loop current</div>
+      <h2 class="text-[36px] md:text-[44px] leading-[1.05] tracking-tight font-bold text-brown-900 mb-4">The rubric is versioned and extensible.</h2>
+      <p class="text-[16px] leading-[1.6] text-brown-800">When a new prompt-engineering practice emerges, add it to <code class="font-mono text-gold-700">pe-best-practices.md</code> with 1/3/5 anchors. Total jumps to 85; ratio drops until you earn the new points. The regression harness keeps you honest — gaming the rubric breaks a fixture cell.</p>
+    </div>
+
+    <div class="mt-10 grid md:grid-cols-3 gap-4">
+      <a href="https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/overview" target="_blank" rel="noopener" class="rounded-2xl bg-cream-50 ring-1 ring-brown-200 p-6 card block shadow-warm-xs">
+        <div class="eyebrow text-gold-600 mb-2">Primary</div>
+        <div class="text-brown-900 font-bold mb-1">Anthropic prompt-engineering docs</div>
+        <div class="text-[12px] text-brown-700 leading-[1.5]">Updated with each model generation.</div>
+      </a>
+      <a href="https://platform.openai.com/docs/guides/prompt-engineering" target="_blank" rel="noopener" class="rounded-2xl bg-cream-50 ring-1 ring-brown-200 p-6 card block shadow-warm-xs">
+        <div class="eyebrow text-gold-600 mb-2">Cross-reference</div>
+        <div class="text-brown-900 font-bold mb-1">OpenAI prompt engineering guide</div>
+        <div class="text-[12px] text-brown-700 leading-[1.5]">Useful for Practice 5 portability signals.</div>
+      </a>
+      <a href="https://ai.google.dev/gemini-api/docs/prompting-strategies" target="_blank" rel="noopener" class="rounded-2xl bg-cream-50 ring-1 ring-brown-200 p-6 card block shadow-warm-xs">
+        <div class="eyebrow text-gold-600 mb-2">Cross-reference</div>
+        <div class="text-brown-900 font-bold mb-1">Google Gemini prompting docs</div>
+        <div class="text-[12px] text-brown-700 leading-[1.5]">Edge cases other vendors don't surface.</div>
+      </a>
+      <div class="rounded-2xl bg-cream-50 ring-1 ring-brown-200 p-6 card shadow-warm-xs">
+        <div class="eyebrow text-brown-600 mb-2">Watch</div>
+        <div class="text-brown-900 font-bold mb-1">Model cards and changelogs</div>
+        <div class="text-[12px] text-brown-700 leading-[1.5]">Each major release publishes prompting notes — read them.</div>
+      </div>
+      <div class="rounded-2xl bg-cream-50 ring-1 ring-brown-200 p-6 card shadow-warm-xs">
+        <div class="eyebrow text-brown-600 mb-2">Watch</div>
+        <div class="text-brown-900 font-bold mb-1">arXiv cs.CL — prompting, ICL, CoT</div>
+        <div class="text-[12px] text-brown-700 leading-[1.5]">Filter for reproducible results, not single-benchmark claims.</div>
+      </div>
+      <div class="rounded-2xl bg-cream-50 ring-1 ring-brown-200 p-6 card shadow-warm-xs">
+        <div class="eyebrow text-brown-600 mb-2">Signal</div>
+        <div class="text-brown-900 font-bold mb-1">Multi-vendor convergence</div>
+        <div class="text-[12px] text-brown-700 leading-[1.5]">A pattern in ≥2 vendor docs independently is stronger evidence than one advocating.</div>
+      </div>
+    </div>
+
+    <div class="mt-10 rounded-2xl bg-brown-50 ring-1 ring-brown-200 p-6 flex items-start gap-4">
+      <div class="w-10 h-10 rounded-lg bg-brown-900 flex items-center justify-center flex-shrink-0">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#F4BA17" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      </div>
+      <div class="text-[14px] text-brown-800 leading-[1.6]"><strong class="text-brown-900">Cadence:</strong> a quarterly rubric review. Add any matured practice, raise the 1–5 bar where the field has moved, retire practices modern models now ignore. Run one cycle per rubric change.</div>
+    </div>
+
+    <!-- How to add a practice (step-by-step) -->
+    <div class="mt-12 grid md:grid-cols-2 gap-5">
+      <div class="rounded-2xl bg-cream-50 ring-1 ring-brown-200 p-8 shadow-warm-xs">
+        <div class="eyebrow text-gold-600 mb-3">How to add a practice &amp; raise the ceiling</div>
+        <h3 class="text-[22px] font-bold text-brown-900 mb-5 leading-tight">Six-step mechanism</h3>
+        <ol class="space-y-4 text-[14px] text-brown-800 leading-[1.6] list-none">
+          <li class="flex gap-3"><span class="flex-shrink-0 w-6 h-6 rounded-full bg-brown-900 text-gold-400 font-mono text-[12px] flex items-center justify-center">1</span><div><strong class="text-brown-900">Qualify it.</strong> The candidate must appear in ≥2 vendor docs or ≥2 independent reproducible studies. Single-vendor advocacy is noise; multi-vendor convergence is signal.</div></li>
+          <li class="flex gap-3"><span class="flex-shrink-0 w-6 h-6 rounded-full bg-brown-900 text-gold-400 font-mono text-[12px] flex items-center justify-center">2</span><div><strong class="text-brown-900">Append, never renumber.</strong> Add it to <code class="font-mono text-gold-700">pe-best-practices.md</code> with the next integer index (17, 18, …). <code class="font-mono text-gold-700">baseline.json</code> cells reference practices by integer — renumbering breaks the ledger.</div></li>
+          <li class="flex gap-3"><span class="flex-shrink-0 w-6 h-6 rounded-full bg-brown-900 text-gold-400 font-mono text-[12px] flex items-center justify-center">3</span><div><strong class="text-brown-900">Write the 1/3/5 anchors.</strong> Anchor "5" to a best-in-class observable (not a vibe). "1" is the anti-pattern. "3" is adequate-with-gaps. Keep anchors measurable — "AUDIT.md contains a <code class="font-mono text-gold-700">§X.y</code>…" beats "the spec should be clear."</div></li>
+          <li class="flex gap-3"><span class="flex-shrink-0 w-6 h-6 rounded-full bg-brown-900 text-gold-400 font-mono text-[12px] flex items-center justify-center">4</span><div><strong class="text-brown-900">Score honestly.</strong> First score is usually 2–3, not 5. That drop is the point — the ratio in <code class="font-mono text-gold-700">baseline.json → pe_scores</code> shows where the work is.</div></li>
+          <li class="flex gap-3"><span class="flex-shrink-0 w-6 h-6 rounded-full bg-brown-900 text-gold-400 font-mono text-[12px] flex items-center justify-center">5</span><div><strong class="text-brown-900">Earn the points.</strong> Edit <code class="font-mono text-gold-700">AUDIT.md</code> to hit the 5-anchor. One fine-tune cycle per rubric change — the coverage-sweep + hard-gate invariant keeps you from gaming it.</div></li>
+          <li class="flex gap-3"><span class="flex-shrink-0 w-6 h-6 rounded-full bg-brown-900 text-gold-400 font-mono text-[12px] flex items-center justify-center">6</span><div><strong class="text-brown-900">Update the ceiling.</strong> <code class="font-mono text-gold-700">max = 5 × N_practices</code>. 16 → 80. 17 → 85. 20 → 100. The scale grows with the field; your evidence grows with it.</div></li>
+        </ol>
+        <div class="mt-5 pt-5 border-t border-brown-100 text-[12px] text-brown-700 leading-[1.55]"><strong class="text-brown-900">Guardrail:</strong> hard gate — no single practice may drop ≥2 points vs. prior baseline; TOTAL ratio may not drop ≥0.05 across a cycle. Adding a new practice is allowed to dilute; regressing existing ones is not.</div>
+      </div>
+
+      <div class="rounded-2xl bg-cream-50 ring-1 ring-brown-200 p-8 shadow-warm-xs">
+        <div class="eyebrow text-gold-600 mb-3">Candidate new practices (watchlist)</div>
+        <h3 class="text-[22px] font-bold text-brown-900 mb-5 leading-tight">Four patterns under observation</h3>
+        <p class="text-[13px] text-brown-700 leading-[1.55] mb-5">Tracked across Anthropic, OpenAI, and Google docs + recent model cards. Not yet added to the rubric — each needs multi-vendor survival evidence before earning an integer index.</p>
+        <div class="space-y-3">
+          <div class="rounded-lg bg-brown-50 ring-1 ring-brown-100 p-4">
+            <div class="flex items-baseline gap-2 mb-1">
+              <span class="font-mono text-[11px] text-gold-700 font-bold">17 ·</span>
+              <div class="font-bold text-brown-900 text-[14px]">Context-window awareness</div>
+            </div>
+            <div class="text-[12px] text-brown-700 leading-[1.55]">Spec should degrade gracefully at 8k / 32k / 200k+ contexts. Front-load load-bearing rules; repeat critical invariants near anchors that models attend to.</div>
+          </div>
+          <div class="rounded-lg bg-brown-50 ring-1 ring-brown-100 p-4">
+            <div class="flex items-baseline gap-2 mb-1">
+              <span class="font-mono text-[11px] text-gold-700 font-bold">18 ·</span>
+              <div class="font-bold text-brown-900 text-[14px]">Reasoning-mode compatibility</div>
+            </div>
+            <div class="text-[12px] text-brown-700 leading-[1.55]">Behavior under <em>extended thinking</em> / reasoning modes (o-series, Claude thinking) should not diverge from non-reasoning output. Spec must not inadvertently suppress or inflate chain-of-thought.</div>
+          </div>
+          <div class="rounded-lg bg-brown-50 ring-1 ring-brown-100 p-4">
+            <div class="flex items-baseline gap-2 mb-1">
+              <span class="font-mono text-[11px] text-gold-700 font-bold">19 ·</span>
+              <div class="font-bold text-brown-900 text-[14px]">Tool-use invariance</div>
+            </div>
+            <div class="text-[12px] text-brown-700 leading-[1.55]">AUDIT.md outputs are identical whether the agent is told to use tools, runs standalone, or runs inside an orchestrator. No rule should rely on a specific tool being present.</div>
+          </div>
+          <div class="rounded-lg bg-brown-50 ring-1 ring-brown-100 p-4">
+            <div class="flex items-baseline gap-2 mb-1">
+              <span class="font-mono text-[11px] text-gold-700 font-bold">20 ·</span>
+              <div class="font-bold text-brown-900 text-[14px]">Groundedness &amp; verifiability</div>
+            </div>
+            <div class="text-[12px] text-brown-700 leading-[1.55]">Every claim in the audit output is traceable to a specific rule ID + file path + line range. Hallucinated findings fail the invariant at capture time.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SUPPORT -->
+<section class="py-24 bg-brown-900 text-cream-50 relative overflow-hidden">
+  <div class="absolute inset-0 tex-glow opacity-50"></div>
+  <div class="relative max-w-4xl mx-auto px-6 text-center">
+    <div class="eyebrow text-gold-400 mb-4">Support</div>
+    <h2 class="text-[36px] md:text-[52px] leading-[1.05] tracking-tight font-bold text-cream-50 mb-5">If this saved you a review cycle…</h2>
+    <p class="text-[17px] leading-[1.6] text-brown-100 max-w-2xl mx-auto mb-10">…consider supporting the work. New fixtures, new rubric entries, cross-model sweeps, and keeping the regression harness honest all take real time. Every coffee buys a cycle.</p>
+    <a href="https://buymeacoffee.com/zintaen" target="_blank" rel="noopener"
+       class="inline-flex items-center gap-3 px-8 py-4 rounded-xl bg-gold-500 hover:bg-gold-400 text-brown-950 font-bold text-[17px] transition shadow-glow-gold">
+      Buy me a coffee
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>
+    </a>
+    <div class="mt-6 font-mono text-[12px] text-brown-300">buymeacoffee.com/zintaen</div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="py-12 bg-brown-950 text-brown-300">
+  <div class="max-w-7xl mx-auto px-6">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+      <div class="flex items-center gap-3">
+        <span class="inline-flex w-10 h-10 rounded-md bg-brown-900 items-center justify-center overflow-hidden">
+          <img src="assets/cyberskill-logo.svg" alt="CyberSkill" width="30" height="36" class="select-none"/>
+        </span>
+        <div>
+          <div class="font-bold text-cream-50 text-[15px]">AUDIT<span class="text-gold-400">.md</span> <span class="text-brown-400 font-medium">· by CyberSkill</span></div>
+          <div class="text-[11px] text-brown-400 mt-0.5">Self-auditing repo-audit prompt · regression-gated fine-tune loop</div>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px]">
+        <a href="https://github.com/zintaen/code-audit" target="_blank" rel="noopener" class="text-brown-300 hover:text-gold-400 transition flex items-center gap-2">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.38 7.86 10.9.58.1.79-.25.79-.56v-2.04c-3.2.7-3.87-1.37-3.87-1.37-.52-1.32-1.28-1.67-1.28-1.67-1.04-.72.08-.7.08-.7 1.15.08 1.75 1.18 1.75 1.18 1.03 1.76 2.7 1.25 3.36.95.1-.74.4-1.25.72-1.54-2.55-.29-5.23-1.27-5.23-5.66 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.45.11-3.03 0 0 .97-.31 3.18 1.17a11 11 0 015.8 0c2.2-1.48 3.17-1.17 3.17-1.17.63 1.58.24 2.74.12 3.03.73.8 1.18 1.82 1.18 3.07 0 4.4-2.69 5.36-5.26 5.65.41.35.78 1.04.78 2.1v3.11c0 .31.2.67.8.56A11.5 11.5 0 0023.5 12c0-6.27-5.23-11.5-11.5-11.5z"/></svg>
+          GitHub
+        </a>
+        <a href="README.md" class="text-brown-300 hover:text-gold-400 transition">README</a>
+        <a href="https://buymeacoffee.com/zintaen" target="_blank" rel="noopener" class="text-gold-400 hover:text-gold-300 transition">Support the work</a>
+      </div>
+    </div>
+    <div class="mt-8 pt-6 border-t border-brown-900 flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-[11px] font-mono text-brown-500">
+      <div>AUDIT.md <span class="text-brown-300">sha256:a3c86e12…</span> · PE 79/80 · 40 rules · 8 fixtures · 81 cells</div>
+      <div>Built with care. MIT-style open source. Cycles gated by coverage-sweep.</div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
