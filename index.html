@@ -142,6 +142,16 @@
     border-radius: 12px;
     padding: 20px 24px;
   }
+  /* On narrow viewports wrap code lines instead of overflowing */
+  @media (max-width: 767px) {
+    pre.code {
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      font-size: 12px;
+      padding: 16px 18px;
+    }
+  }
   pre.code .c-comment { color: #D4A884; }
   pre.code .c-str     { color: #F9D478; }
   pre.code .c-key     { color: #F6C644; }
@@ -746,7 +756,7 @@
     <!-- Invocation examples -->
     <div class="mt-12 grid lg:grid-cols-2 gap-5">
       <div class="rounded-2xl bg-brown-900 p-1 shadow-warm-md">
-        <div class="px-5 py-3 flex items-center justify-between border-b border-brown-800">
+        <div class="px-4 sm:px-5 py-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-brown-800">
           <div class="eyebrow text-gold-400">First-pass audit</div>
           <div class="font-mono text-[11px] text-brown-300">claude / cursor / any IDE</div>
         </div>
@@ -758,7 +768,7 @@
       </div>
 
       <div class="rounded-2xl bg-brown-900 p-1 shadow-warm-md">
-        <div class="px-5 py-3 flex items-center justify-between border-b border-brown-800">
+        <div class="px-4 sm:px-5 py-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-brown-800">
           <div class="eyebrow text-gold-400">Resume existing</div>
           <div class="font-mono text-[11px] text-brown-300">picks up mid-audit</div>
         </div>
@@ -770,7 +780,7 @@
       </div>
 
       <div class="rounded-2xl bg-brown-900 p-1 shadow-warm-md">
-        <div class="px-5 py-3 flex items-center justify-between border-b border-brown-800">
+        <div class="px-4 sm:px-5 py-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-brown-800">
           <div class="eyebrow text-gold-400">Scoped scan</div>
           <div class="font-mono text-[11px] text-brown-300">one directory · one rule family</div>
         </div>
@@ -782,7 +792,7 @@
       </div>
 
       <div class="rounded-2xl bg-gold-500 p-1 shadow-warm-md">
-        <div class="px-5 py-3 flex items-center justify-between border-b border-gold-600">
+        <div class="px-4 sm:px-5 py-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-gold-600">
           <div class="eyebrow text-brown-950">Verify the harness</div>
           <div class="font-mono text-[11px] text-brown-900">once, at repo root</div>
         </div>
@@ -908,7 +918,7 @@
 
     <!-- Example prompt -->
     <div class="mt-10 rounded-2xl bg-brown-950 ring-1 ring-gold-500/40 p-1">
-      <div class="px-5 py-3 flex items-center justify-between border-b border-brown-900">
+      <div class="px-4 sm:px-5 py-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-brown-900">
         <div class="eyebrow text-gold-400">Example Path A invocation</div>
         <div class="font-mono text-[11px] text-brown-300">one session · claude desktop · cowork mode</div>
       </div>
