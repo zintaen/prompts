@@ -1,0 +1,16 @@
+{
+  "name": "code-audit",
+  "version": "1.0.0",
+  "description": "AUDIT.md — a self-auditing repo-audit prompt",
+  "type": "module",
+  "scripts": {
+    "dev": "python3 -m http.server 8000",
+    "build": "node build-analytics.js"
+  },
+  "dependencies": {
+    "@vercel/analytics": "^1.4.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}

@@ -19,6 +19,12 @@ fine-tune/evals/fixtures/**/repo/.audit/
 # the PROPOSED-EDITS-*.md draft is redundant.
 PROPOSED-EDITS-*.md
 
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
 # Python
 __pycache__/
 *.pyc
